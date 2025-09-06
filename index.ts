@@ -9,6 +9,34 @@ import { GetSession, SafeError, GetActiveUserLabel, GetSheetNameForUser, ParseAm
 
 import "./Process.js";
 
+// --- Patch Telegraf redactToken to avoid crash on read-only error.message (e.g., DOMException) ---
+// Some runtimes (Undici/Bun) throw errors with non-writable `message`. Telegraf tries to mutate it for token redaction.
+// We monkey-patch the internal redactToken to be safe.
+try {
+	// Dynamic import to avoid bundling issues if path changes; ignore if not found.
+	// @ts-ignore
+	import("telegraf/lib/core/network/client.js")
+		.then((mod: any) => {
+			if (mod && typeof mod.redactToken === "function") {
+				const original = mod.redactToken;
+				mod.redactToken = function safeRedact(error: any) {
+					try {
+						// Try original behavior
+						return original.call(this, error);
+					} catch (e) {
+						// Fallback: do not mutate error.message; just return the same error
+						return error;
+					}
+				};
+				console.log("[patch] Applied safe redactToken for Telegraf client");
+			}
+		})
+		.catch(() => {
+			// No-op if internal path changes
+		});
+} catch {}
+// -----------------------------------------------------------------------------------------------
+
 const BotInstance: any = new Telegraf(process.env.BOT_API_KEY || "");
 
 // Maps to track inactivity timers and sessions per chat ID
