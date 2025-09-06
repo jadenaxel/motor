@@ -337,9 +337,21 @@ BotInstance.start((ctx) =>
     ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones.")
 );
 
+
 BotInstance.command("mi_id", (ctx) => {
     const userId = ctx.from?.id;
     return ctx.reply(`Tu user.id es: ${userId}`);
+});
+
+// Comando de mantenimiento para limpiar webhook y updates pendientes
+BotInstance.command("fix409", async (ctx) => {
+    try {
+        await BotInstance.telegram.deleteWebhook({ drop_pending_updates: true });
+        await ctx.reply("✅ Webhook eliminado y updates pendientes descartados. Si el 409 persiste, reinicia el servicio.");
+    } catch (e) {
+        console.error("fix409 error:", e);
+        await ctx.reply("⚠️ No pude limpiar el webhook. Revisa logs.");
+    }
 });
 
 BotInstance.command("iniciar", (ctx) => {
@@ -671,7 +683,20 @@ BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
 
 BotInstance.catch((err) => console.error("Error en bot:", err));
 
-BotInstance.launch().then();
+// Lanzar en modo polling asegurando que no exista webhook ni updates pendientes
+(async () => {
+    try {
+        const wh = await BotInstance.telegram.getWebhookInfo();
+        if (wh && wh.url) {
+            console.log("Webhook detectado; eliminando antes de iniciar polling:", wh.url);
+            await BotInstance.telegram.deleteWebhook({ drop_pending_updates: true });
+        }
+        await BotInstance.launch({ dropPendingUpdates: true });
+        console.log("Bot lanzado en polling con dropPendingUpdates.");
+    } catch (err) {
+        console.error("Error al lanzar el bot:", err);
+    }
+})();
 
 // --- Minimal HTTP server so hosting platforms detect an open port ---
 import http from "http";
@@ -693,9 +718,11 @@ server.listen(PORT, () => {
 
 process.once("SIGINT", () => {
     try { server.close(); } catch {}
+    console.log("Cierre por SIGINT");
     BotInstance.stop("SIGINT");
 });
 process.once("SIGTERM", () => {
     try { server.close(); } catch {}
+    console.log("Cierre por SIGTERM");
     BotInstance.stop("SIGTERM");
 });
