@@ -14,7 +14,9 @@ const ENV_ALLOWED = (process.env.BOT_ALLOWED_USERS || "")
     .map((s) => parseInt(s.trim(), 10))
     .filter((n) => Number.isInteger(n));
 
-const FALLBACK_ALLOWED = [1463335496].filter((n) => Number.isInteger(n));
+const FALLBACK_ALLOWED = [1463335496, 5804311697].filter((n) =>
+    Number.isInteger(n)
+);
 
 const ALLOWED_USERS = new Set(
     ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED
