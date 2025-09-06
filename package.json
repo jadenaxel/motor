@@ -4,8 +4,8 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "start": "bun run index.js",
-        "dev": "bun run --watch index.js"
+        "start": "bun run index.ts",
+        "dev": "bun run --watch index.ts"
     },
     "keywords": [],
     "author": "",
@@ -14,5 +14,8 @@
     "dependencies": {
         "googleapis": "^159.0.0",
         "telegraf": "^4.16.3"
+    },
+    "devDependencies": {
+        "@types/node": "^24.3.1"
     }
 }

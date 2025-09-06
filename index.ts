@@ -2,7 +2,9 @@ import { Telegraf, Markup } from "telegraf";
 import { google } from "googleapis";
 
 import GoogleAuth from "./GoogleAuth.js";
-import { INACTIVITY_MS, getSession, safeErr } from "./Constant.js";
+import { INACTIVITY_MS, SPREADSHEET_ID } from "./Constant.js";
+import { sendMainMenu } from "./Command.js";
+import { GetSession, SafeError, GetActiveUserLabel, GetSheetNameForUser } from "./helpers/";
 
 import "./Process.js";
 
@@ -17,59 +19,8 @@ const ENV_ALLOWED = (process.env.BOT_ALLOWED_USERS || "")
 const FALLBACK_ALLOWED = [].filter((n) => Number.isInteger(n));
 const ALLOWED_USERS = new Set(ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED);
 
-const getActiveUserLabel = (session) => {
-	if (!session?.lockedUser) return null;
-	return session.lockedUser === "KING" ? "Jose Manuel Polanco Nina" : "Victor Manuel Diaz";
-};
-
-// Envía el menú principal y el resumen de ganancias del día
-async function sendMainMenu(ctx, s) {
-	const label = getActiveUserLabel(s);
-	await ctx.reply(
-		`Menú principal para ${label}:`,
-		Markup.inlineKeyboard([[Markup.button.callback("📈 Ganancias", "ADD_INCOME")], [Markup.button.callback("📉 Gastos", "ADD_EXPENSE")]])
-	);
-	// Enviar resumen de ganancias del día justo debajo
-	await sendTodayIncomeSummary(ctx, s);
-}
-
-// Helper para mostrar el resumen de ganancias de hoy para el usuario activo
-async function sendTodayIncomeSummary(ctx, s) {
-	const label = getActiveUserLabel(s);
-	const today = rdTodayDateString(); // YYYY-MM-DD en zona RD
-	try {
-		const auth = await GoogleAuth.getClient();
-		const sheets = google.sheets({ version: "v4", auth });
-		const sheetName = getSheetNameForUser(s.lockedUser);
-		const range = `${sheetName}!C2:E`; // Fecha (C), Categoria (D), Cantidad (E)
-		const res = await sheets.spreadsheets.values.get({
-			spreadsheetId: SPREADSHEET_ID,
-			range,
-		});
-		const rows = res.data.values || [];
-		let total = 0;
-		for (const r of rows) {
-			const fecha = r[0] || ""; // C
-			const categoria = r[1] || ""; // D
-			const cantidadStr = r[2] || ""; // E
-			if (String(fecha).startsWith(today) && String(categoria).toLowerCase() === "ganancias") {
-				const num = parseFloat(String(cantidadStr).replace(/,/g, ""));
-				if (!Number.isNaN(num) && Number.isFinite(num)) total += num;
-			}
-		}
-		const totalFmt = new Intl.NumberFormat("es-DO", {
-			minimumFractionDigits: 2,
-			maximumFractionDigits: 2,
-		}).format(total);
-		await ctx.reply(`📊 Ganancias de hoy para ${label}: RD$ ${totalFmt}`);
-	} catch (e) {
-		console.error("sendTodayIncomeSummary error:", e);
-		await ctx.reply("⚠️ No pude obtener el resumen de hoy.");
-	}
-}
-
 function sendExpenseCategoryMenu(ctx, s) {
-	const label = getActiveUserLabel(s);
+	const label: string | null = GetActiveUserLabel(s);
 	return ctx.reply(
 		`¿En qué categoría fue el gasto para ${label}?`,
 		Markup.inlineKeyboard([
@@ -107,12 +58,6 @@ function parseAmount(input) {
 
 	if (Number.isNaN(val)) return NaN;
 	return val * multiplier;
-}
-
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
-
-function getSheetNameForUser(userId) {
-	return userId === "KING" ? "King" : "Zohan";
 }
 
 async function ensureSheetHeader(sheetName) {
@@ -165,9 +110,9 @@ async function ensureFechaColumnFormat(sheetName) {
 	const meta = await sheets.spreadsheets.get({
 		spreadsheetId: SPREADSHEET_ID,
 	});
-	const sheet = meta.data.sheets.find((s) => s.properties?.title === sheetName);
+	const sheet = meta?.data?.sheets?.find((s) => s.properties?.title === sheetName);
 	if (!sheet) return;
-	const sheetId = sheet.properties.sheetId;
+	const sheetId = sheet?.properties?.sheetId;
 
 	await sheets.spreadsheets.batchUpdate({
 		spreadsheetId: SPREADSHEET_ID,
@@ -196,22 +141,10 @@ async function ensureFechaColumnFormat(sheetName) {
 	});
 }
 
-// Helper para obtener la fecha de hoy en RD en formato YYYY-MM-DD
-function rdTodayDateString() {
-	const fmt = new Intl.DateTimeFormat("en-CA", {
-		timeZone: "America/Santo_Domingo",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	});
-	// en-CA -> YYYY-MM-DD
-	return fmt.format(new Date());
-}
-
 async function appendEntryToSheet({ userId, userLabel, type, amount, category, note, chatId }) {
 	const auth = await GoogleAuth.getClient();
 	const sheets = google.sheets({ version: "v4", auth });
-	const sheetName = getSheetNameForUser(userId);
+	const sheetName = GetSheetNameForUser(userId);
 	await ensureSheetHeader(sheetName);
 	await ensureFechaColumnFormat(sheetName);
 	// Header: ["ID","Nombre","Fecha","Categoria","Cantidad","Comentario"]
@@ -225,7 +158,7 @@ async function appendEntryToSheet({ userId, userLabel, type, amount, category, n
 	});
 }
 
-const BotInstance = new Telegraf(process.env.BOT_API_KEY);
+const BotInstance: any = new Telegraf(process.env.BOT_API_KEY || "");
 
 BotInstance.use(async (ctx, next) => {
 	const userId = ctx.from?.id;
@@ -276,7 +209,7 @@ function resetInactivity(ctx) {
 }
 
 BotInstance.use(async (ctx, next) => {
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 
 	if (ctx.updateType === "message" && typeof ctx.message?.text === "string") {
 		const txt = ctx.message.text.trim();
@@ -340,7 +273,7 @@ BotInstance.command("fix409", async (ctx) => {
 });
 
 BotInstance.command("iniciar", (ctx) => {
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (s.lockedUser) {
 		return ctx.reply(`Ya iniciaste sesión como ${s.lockedUser}. Usa /cerrar para salir.`);
 	}
@@ -348,7 +281,7 @@ BotInstance.command("iniciar", (ctx) => {
 });
 
 BotInstance.command("menu", async (ctx) => {
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.reply("Primero debes elegir un usuario con /iniciar.");
 	}
@@ -358,7 +291,7 @@ BotInstance.command("menu", async (ctx) => {
 BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
 	const action = ctx.callbackQuery.data;
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 
 	if (!s.lockedUser) {
 		s.lockedUser = action;
@@ -376,13 +309,13 @@ BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
 
 BotInstance.action("ADD_INCOME", async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
 			show_alert: true,
 		});
 	}
-	const label = getActiveUserLabel(s);
+	const label: string | null = GetActiveUserLabel(s);
 	s.pendingEntryType = "income";
 	return ctx.reply(`📝 Registrar **Ganancia** para ${label} (ID: ${s.lockedUser}). Envía el monto o usa /cerrar para cancelar.`, {
 		parse_mode: "Markdown",
@@ -392,7 +325,7 @@ BotInstance.action("ADD_INCOME", async (ctx) => {
 
 BotInstance.action("ADD_EXPENSE", async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
 			show_alert: true,
@@ -407,7 +340,7 @@ BotInstance.action("ADD_EXPENSE", async (ctx) => {
 
 BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO", "EXP_CAT_PIEZAS", "EXP_CAT_OTROS"], async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
 			show_alert: true,
@@ -434,7 +367,7 @@ BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO
 		);
 	}
 
-	const label = getActiveUserLabel(s);
+	const label: string | null = GetActiveUserLabel(s);
 	return ctx.reply(`📝 Registrar **Gasto** (${s.pendingExpenseCategory}) para ${label}. Envía el monto o usa /cerrar para cancelar.`, {
 		parse_mode: "Markdown",
 		...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_EXPENSE_MENU")]]),
@@ -444,7 +377,7 @@ BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO
 BotInstance.command("cerrar", (ctx) => endSession(ctx));
 
 BotInstance.on("text", async (ctx) => {
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	const text = String(ctx.message?.text || "").trim();
 
 	if (s.lockedUser && s.pendingEntryType === "expense" && s.awaitingOtherComment) {
@@ -453,7 +386,7 @@ BotInstance.on("text", async (ctx) => {
 		}
 		s.pendingExpenseOtherComment = text;
 		s.awaitingOtherComment = false;
-		const label = getActiveUserLabel(s);
+		const label: string | null = GetActiveUserLabel(s);
 		return ctx.reply(
 			`Comentario registrado: "${text}". Ahora envía el monto del gasto para ${label}.`,
 			Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_EXPENSE_MENU")]])
@@ -463,7 +396,7 @@ BotInstance.on("text", async (ctx) => {
 	if (s.lockedUser && (s.pendingEntryType === "income" || s.pendingEntryType === "expense")) {
 		const amount = parseAmount(text);
 		if (!Number.isNaN(amount) && Number.isFinite(amount)) {
-			const label = getActiveUserLabel(s);
+			const label: string | null = GetActiveUserLabel(s);
 			const kind = s.pendingEntryType === "income" ? "Ganancia" : "Gasto";
 
 			let extra = "";
@@ -526,7 +459,7 @@ BotInstance.on("text", async (ctx) => {
 
 BotInstance.action("BACK_TO_MENU", async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
 			show_alert: true,
@@ -540,9 +473,9 @@ BotInstance.action("BACK_TO_MENU", async (ctx) => {
 	return;
 });
 
-BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
+BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx: any) => {
 	await ctx.answerCbQuery().catch(() => {});
-	const s = getSession(ctx, sessions);
+	const s = GetSession(ctx, sessions);
 	if (!s.lockedUser) {
 		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
 			show_alert: true,
@@ -555,8 +488,8 @@ BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
 	return sendExpenseCategoryMenu(ctx, s);
 });
 
-BotInstance.catch((err, ctx) => {
-	console.error("Error en bot:", safeErr(err), "ctxType:", ctx?.updateType);
+BotInstance.catch((err: any, ctx: any) => {
+	console.error("Error en bot:", SafeError(err), "ctxType:", ctx?.updateType);
 	// swallow
 });
 
@@ -580,7 +513,7 @@ BotInstance.catch((err, ctx) => {
 // Keep-alive ping each 1 minute to surface auth/network issues without crashing
 setInterval(() => {
 	BotInstance.telegram.getMe().catch((e) => {
-		console.error("keepAlive getMe error:", safeErr(e));
+		console.error("keepAlive getMe error:", SafeError(e));
 	});
 }, 1 * 60 * 1000);
 
