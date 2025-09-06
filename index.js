@@ -3,42 +3,36 @@ import path from "path";
 import { Telegraf, Markup } from "telegraf";
 import { google } from "googleapis";
 
-const INACTIVITY_MS = 60_000;
+const INACTIVITY_MS = 100_000;
 
 const inactivityTimers = new Map();
 
-const sessions = new Map(); // chatId -> { lockedUser?: "KING" | "ZOHAN" }
+const sessions = new Map();
 
-// ===== Authorization (whitelist) =====
-// Define allowed user IDs: you + 2 personas más.
-// OPCIÓN A (recomendada): Usa variable de entorno BOT_ALLOWED_USERS con IDs separados por coma, ej:
-// BOT_ALLOWED_USERS=123456789,987654321,555666777
 const ENV_ALLOWED = (process.env.BOT_ALLOWED_USERS || "")
     .split(",")
     .map((s) => parseInt(s.trim(), 10))
     .filter((n) => Number.isInteger(n));
 
-// OPCIÓN B: Fija aquí los IDs manualmente si no usas variables de entorno.
 const FALLBACK_ALLOWED = [1463335496].filter((n) => Number.isInteger(n));
 
 const ALLOWED_USERS = new Set(
     ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED
 );
-// ===== end Authorization =====
 
-function getSession(ctx) {
+const getSession = (ctx) => {
     const chatId = ctx.chat?.id;
     if (!chatId) return {};
     if (!sessions.has(chatId)) sessions.set(chatId, {});
     return sessions.get(chatId);
-}
+};
 
-function getActiveUserLabel(session) {
+const getActiveUserLabel = (session) => {
     if (!session?.lockedUser) return null;
     return session.lockedUser === "KING"
         ? "Jose Manuel Polanco Nina"
         : "Victor Manuel Diaz";
-}
+};
 
 function sendMainMenu(ctx, s) {
     const label = getActiveUserLabel(s);
@@ -74,10 +68,8 @@ function sendExpenseCategoryMenu(ctx, s) {
 function parseAmount(input) {
     if (input == null) return NaN;
     let s = String(input).trim().toLowerCase();
-    // keep digits, dots, commas, minus, and k/m suffixes; drop currency symbols and other chars
     s = s.replace(/[^0-9.,km\-]/g, "");
 
-    // detect suffix multiplier (k = thousand, m = million)
     let multiplier = 1;
     if (s.endsWith("k")) {
         multiplier = 1_000;
@@ -87,12 +79,9 @@ function parseAmount(input) {
         s = s.slice(0, -1);
     }
 
-    // common thousand separators
-    // case 1: "12,000" -> remove commas
     let numeric = s.replace(/,/g, "");
     let val = parseFloat(numeric);
 
-    // fallback: in case someone used comma as decimal separator (e.g., "12,5k")
     if (Number.isNaN(val)) {
         numeric = s.replace(/\./g, "").replace(/,/g, ".");
         val = parseFloat(numeric);
@@ -107,14 +96,12 @@ const GoogleAuth = new google.auth.GoogleAuth({
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-// ===== Google Sheets config =====
-const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID; // <-- sustituye por tu Sheet ID o usa variables de entorno
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
 function getSheetNameForUser(userId) {
     return userId === "KING" ? "King" : "Zohan";
 }
 
-// Ensures the sheet has the correct header row.
 async function ensureSheetHeader(sheetName) {
     const auth = await GoogleAuth.getClient();
     const sheets = google.sheets({ version: "v4", auth });
@@ -154,7 +141,6 @@ async function ensureSheetHeader(sheetName) {
     }
 }
 
-// Formats current datetime as "YYYY-MM-DD HH:MM:SS" (local time) for USER_ENTERED parsing in Sheets
 function nowAsSheetsText() {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, "0");
@@ -167,12 +153,10 @@ function nowAsSheetsText() {
     return `${yyyy}-${mm}-${dd} ${HH}:${MM}:${SS}`;
 }
 
-// Ensures column C (Fecha) uses DATE_TIME format so values are stored as dates, not plain text
 async function ensureFechaColumnFormat(sheetName) {
     const auth = await GoogleAuth.getClient();
     const sheets = google.sheets({ version: "v4", auth });
 
-    // Find sheetId by name
     const meta = await sheets.spreadsheets.get({
         spreadsheetId: SPREADSHEET_ID,
     });
@@ -182,7 +166,6 @@ async function ensureFechaColumnFormat(sheetName) {
     if (!sheet) return;
     const sheetId = sheet.properties.sheetId;
 
-    // Apply number format to entire column C (index 2)
     await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SPREADSHEET_ID,
         requestBody: {
@@ -243,15 +226,12 @@ async function appendEntryToSheet({
         requestBody: { values },
     });
 }
-// ===== end Google Sheets config =====
 
 const BotInstance = new Telegraf(process.env.BOT_API_KEY);
 
-// Whitelist middleware: solo usuarios permitidos pueden usar el bot
 BotInstance.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (!userId || !ALLOWED_USERS.has(userId)) {
-        // Mensaje acorde al tipo de update
         if (ctx.updateType === "callback_query") {
             await ctx
                 .answerCbQuery("🚫 No tienes permiso para usar este bot.", {
@@ -262,7 +242,7 @@ BotInstance.use(async (ctx, next) => {
         if (ctx.updateType === "message") {
             await ctx.reply("🚫 No tienes permiso para usar este bot.");
         }
-        return; // No continuar con el resto del flujo
+        return;
     }
     return next();
 });
@@ -298,18 +278,14 @@ function resetInactivity(ctx) {
     inactivityTimers.set(chatId, newTimer);
 }
 
-// Guard middleware: when a user is locked in, block /iniciar and any other commands except /cerrar,
-// and prevent selecting a different user via callback buttons.
 BotInstance.use(async (ctx, next) => {
     const s = getSession(ctx);
 
-    // Block /iniciar and any command other than /cerrar if already locked in
     if (ctx.updateType === "message" && typeof ctx.message?.text === "string") {
         const txt = ctx.message.text.trim();
         if (txt.startsWith("/")) {
             const cmd = txt.split(" ")[0];
 
-            // If NO user is chosen yet, only allow /iniciar or /start
             if (!s.lockedUser && cmd !== "/iniciar") {
                 await ctx.reply(
                     "Primero debes elegir un usuario con /iniciar."
@@ -317,7 +293,6 @@ BotInstance.use(async (ctx, next) => {
                 return;
             }
 
-            // If a user is already locked, only allow /cerrar
             if (s.lockedUser && cmd !== "/cerrar") {
                 await ctx.reply(
                     `Ya iniciaste sesión como ${s.lockedUser}. Solo puedes usar /cerrar para salir.`
@@ -327,11 +302,9 @@ BotInstance.use(async (ctx, next) => {
         }
     }
 
-    // Prevent non-user actions before choosing a user, and prevent changing to a different user via callback while locked
     if (ctx.updateType === "callback_query") {
         const data = ctx.callbackQuery?.data;
 
-        // If NO user chosen yet, only allow choosing user via KING/ZOHAN
         if (!s.lockedUser && data !== "KING" && data !== "ZOHAN") {
             await ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
                 show_alert: true,
@@ -339,7 +312,6 @@ BotInstance.use(async (ctx, next) => {
             return;
         }
 
-        // If already locked, prevent switching to the other identity
         if (
             s.lockedUser &&
             (data === "KING" || data === "ZOHAN") &&
@@ -396,22 +368,19 @@ BotInstance.command("menu", (ctx) => {
 
 BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const action = ctx.callbackQuery.data; // "KING" or "ZOHAN"
+    const action = ctx.callbackQuery.data;
     const s = getSession(ctx);
 
-    // If not locked yet, lock to the chosen user
     if (!s.lockedUser) {
         s.lockedUser = action;
         ctx.editMessageText(`Elegiste: ${action}`);
         return sendMainMenu(ctx, s);
     }
 
-    // If locked to the same user, just acknowledge
     if (s.lockedUser === action) {
         return ctx.answerCbQuery("Ya estás usando este usuario.");
     }
 
-    // If trying to change, block it (the guard middleware also handles this)
     return ctx.answerCbQuery(
         "No puedes cambiar de usuario durante la sesión. Usa /cerrar.",
         { show_alert: true }
@@ -447,8 +416,6 @@ BotInstance.action("ADD_EXPENSE", async (ctx) => {
             show_alert: true,
         });
     }
-    const label = getActiveUserLabel(s);
-    // Prepare expense flow: ask for category first
     s.pendingEntryType = "expense";
     s.pendingExpenseCategory = undefined;
     s.pendingExpenseOtherComment = undefined;
@@ -527,7 +494,6 @@ BotInstance.on("text", async (ctx) => {
     const s = getSession(ctx);
     const text = String(ctx.message?.text || "").trim();
 
-    // If we are awaiting the 'Otros' comment in expense flow, capture it here first
     if (
         s.lockedUser &&
         s.pendingEntryType === "expense" &&
@@ -549,7 +515,6 @@ BotInstance.on("text", async (ctx) => {
         );
     }
 
-    // If we are expecting an amount for income/expense, try to parse it with flexible formats
     if (
         s.lockedUser &&
         (s.pendingEntryType === "income" || s.pendingEntryType === "expense")
@@ -571,12 +536,11 @@ BotInstance.on("text", async (ctx) => {
                 extra = cat + com;
             }
 
-            // Persist to Google Sheets
             try {
                 await appendEntryToSheet({
                     userId: s.lockedUser,
                     userLabel: label,
-                    type: s.pendingEntryType, // "income" | "expense"
+                    type: s.pendingEntryType,
                     amount,
                     category:
                         s.pendingEntryType === "expense"
@@ -603,7 +567,6 @@ BotInstance.on("text", async (ctx) => {
                 ? " 💾 Guardado en Google Sheets."
                 : " ⚠️ No se pudo guardar en Google Sheets.";
 
-            // Offer back navigation buttons depending on the flow that just finished
             const wasExpense = kind === "Gasto";
             const keyboard = wasExpense
                 ? Markup.inlineKeyboard([
@@ -684,7 +647,6 @@ BotInstance.action("BACK_TO_MENU", async (ctx) => {
             show_alert: true,
         });
     }
-    // clear any pending states
     s.pendingEntryType = undefined;
     s.pendingExpenseCategory = undefined;
     s.pendingExpenseOtherComment = undefined;
@@ -700,7 +662,6 @@ BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
             show_alert: true,
         });
     }
-    // restore expense category selection step
     s.pendingEntryType = "expense";
     s.pendingExpenseCategory = undefined;
     s.pendingExpenseOtherComment = undefined;
