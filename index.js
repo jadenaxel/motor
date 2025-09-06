@@ -3,7 +3,7 @@ import path from "path";
 import { Telegraf, Markup } from "telegraf";
 import { google } from "googleapis";
 
-const INACTIVITY_MS = 30_000;
+const INACTIVITY_MS = 60_000;
 
 const inactivityTimers = new Map();
 
