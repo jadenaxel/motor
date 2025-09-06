@@ -1,5 +1,32 @@
 import path from "path";
 
+// ===== Global error handling (keep process alive) =====
+const SAFE_TOKEN_RE = /(bot|user)(\d+):[^/]+/g;
+function safeErr(e) {
+    try {
+        const msg = String(e?.message ?? e ?? "");
+        return {
+            name: e?.name || "Error",
+            message: msg.replace(SAFE_TOKEN_RE, "$1$2:[REDACTED]"),
+            stack:
+                typeof e?.stack === "string"
+                    ? e.stack.split("\n").slice(0, 10).join("\n")
+                    : undefined,
+        };
+    } catch {
+        return { name: "Error", message: "Unknown error" };
+    }
+}
+process.on("uncaughtException", (err) => {
+    console.error("uncaughtException:", safeErr(err));
+    // DO NOT EXIT — keep the bot alive
+});
+process.on("unhandledRejection", (reason, p) => {
+    console.error("unhandledRejection at:", p, "reason:", safeErr(reason));
+    // DO NOT EXIT — keep the bot alive
+});
+// ======================================================
+
 import { Telegraf, Markup } from "telegraf";
 import { google } from "googleapis";
 
@@ -337,7 +364,6 @@ BotInstance.start((ctx) =>
     ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones.")
 );
 
-
 BotInstance.command("mi_id", (ctx) => {
     const userId = ctx.from?.id;
     return ctx.reply(`Tu user.id es: ${userId}`);
@@ -346,8 +372,12 @@ BotInstance.command("mi_id", (ctx) => {
 // Comando de mantenimiento para limpiar webhook y updates pendientes
 BotInstance.command("fix409", async (ctx) => {
     try {
-        await BotInstance.telegram.deleteWebhook({ drop_pending_updates: true });
-        await ctx.reply("✅ Webhook eliminado y updates pendientes descartados. Si el 409 persiste, reinicia el servicio.");
+        await BotInstance.telegram.deleteWebhook({
+            drop_pending_updates: true,
+        });
+        await ctx.reply(
+            "✅ Webhook eliminado y updates pendientes descartados. Si el 409 persiste, reinicia el servicio."
+        );
     } catch (e) {
         console.error("fix409 error:", e);
         await ctx.reply("⚠️ No pude limpiar el webhook. Revisa logs.");
@@ -681,15 +711,23 @@ BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
     return sendExpenseCategoryMenu(ctx, s);
 });
 
-BotInstance.catch((err) => console.error("Error en bot:", err));
+BotInstance.catch((err, ctx) => {
+    console.error("Error en bot:", safeErr(err), "ctxType:", ctx?.updateType);
+    // swallow
+});
 
 // Lanzar en modo polling asegurando que no exista webhook ni updates pendientes
 (async () => {
     try {
         const wh = await BotInstance.telegram.getWebhookInfo();
         if (wh && wh.url) {
-            console.log("Webhook detectado; eliminando antes de iniciar polling:", wh.url);
-            await BotInstance.telegram.deleteWebhook({ drop_pending_updates: true });
+            console.log(
+                "Webhook detectado; eliminando antes de iniciar polling:",
+                wh.url
+            );
+            await BotInstance.telegram.deleteWebhook({
+                drop_pending_updates: true,
+            });
         }
         await BotInstance.launch({ dropPendingUpdates: true });
         console.log("Bot lanzado en polling con dropPendingUpdates.");
@@ -697,6 +735,13 @@ BotInstance.catch((err) => console.error("Error en bot:", err));
         console.error("Error al lanzar el bot:", err);
     }
 })();
+
+// Keep-alive ping each 5 minutes to surface auth/network issues without crashing
+setInterval(() => {
+    BotInstance.telegram.getMe().catch((e) => {
+        console.error("keepAlive getMe error:", safeErr(e));
+    });
+}, 1 * 60 * 1000);
 
 // --- Minimal HTTP server so hosting platforms detect an open port ---
 import http from "http";
@@ -717,12 +762,16 @@ server.listen(PORT, () => {
 // --------------------------------------------------------------------
 
 process.once("SIGINT", () => {
-    try { server.close(); } catch {}
+    try {
+        server.close();
+    } catch {}
     console.log("Cierre por SIGINT");
     BotInstance.stop("SIGINT");
 });
 process.once("SIGTERM", () => {
-    try { server.close(); } catch {}
+    try {
+        server.close();
+    } catch {}
     console.log("Cierre por SIGTERM");
     BotInstance.stop("SIGTERM");
 });
