@@ -1,9 +1,7 @@
 import { Markup } from "telegraf";
-import { IncomeSummary } from "./helpers/";
-import { GetActiveUserLabel } from "./helpers";
+import { IncomeSummary, GetActiveUserLabel } from "../helpers/";
 
-// Envía el menú principal y el resumen de ganancias del día
-const sendMainMenu = async (ctx: any, s: any) => {
+const sendMainMenu = async (ctx: any, s: any): Promise<void> => {
 	const label: string | null = GetActiveUserLabel(s);
 	// Enviar resumen de ganancias del día justo debajo
 	await IncomeSummary(ctx, s);
@@ -14,4 +12,4 @@ const sendMainMenu = async (ctx: any, s: any) => {
 	);
 };
 
-export { sendMainMenu };
+export default sendMainMenu;

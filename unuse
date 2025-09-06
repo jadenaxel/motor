@@ -1,0 +1,12 @@
+// Comando de mantenimiento para limpiar webhook y updates pendientes
+BotInstance.command("fix409", async (ctx) => {
+	try {
+		await BotInstance.telegram.deleteWebhook({
+			drop_pending_updates: true,
+		});
+		await ctx.reply("✅ Webhook eliminado y updates pendientes descartados. Si el 409 persiste, reinicia el servicio.");
+	} catch (e) {
+		console.error("fix409 error:", e);
+		await ctx.reply("⚠️ No pude limpiar el webhook. Revisa logs.");
+	}
+});
