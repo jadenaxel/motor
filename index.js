@@ -3,7 +3,7 @@ import path from "path";
 import { Telegraf, Markup } from "telegraf";
 import { google } from "googleapis";
 
-const INACTIVITY_MS = 100_000;
+const INACTIVITY_MS = 100_0000;
 
 const inactivityTimers = new Map();
 
@@ -14,9 +14,7 @@ const ENV_ALLOWED = (process.env.BOT_ALLOWED_USERS || "")
     .map((s) => parseInt(s.trim(), 10))
     .filter((n) => Number.isInteger(n));
 
-const FALLBACK_ALLOWED = [1463335496, 5804311697].filter((n) =>
-    Number.isInteger(n)
-);
+const FALLBACK_ALLOWED = [].filter((n) => Number.isInteger(n));
 
 const ALLOWED_USERS = new Set(
     ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED
@@ -675,5 +673,29 @@ BotInstance.catch((err) => console.error("Error en bot:", err));
 
 BotInstance.launch().then();
 
-process.once("SIGINT", () => BotInstance.stop("SIGINT"));
-process.once("SIGTERM", () => BotInstance.stop("SIGTERM"));
+// --- Minimal HTTP server so hosting platforms detect an open port ---
+import http from "http";
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const server = http.createServer((req, res) => {
+    // Lightweight health endpoint
+    if (req.url === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Motor Bot running");
+});
+server.listen(PORT, () => {
+    console.log(`HTTP health server listening on port ${PORT}`);
+});
+// --------------------------------------------------------------------
+
+process.once("SIGINT", () => {
+    try { server.close(); } catch {}
+    BotInstance.stop("SIGINT");
+});
+process.once("SIGTERM", () => {
+    try { server.close(); } catch {}
+    BotInstance.stop("SIGTERM");
+});
