@@ -61,15 +61,50 @@ const getActiveUserLabel = (session) => {
         : "Victor Manuel Diaz";
 };
 
-function sendMainMenu(ctx, s) {
+// Envía el menú principal y el resumen de ganancias del día
+async function sendMainMenu(ctx, s) {
     const label = getActiveUserLabel(s);
-    return ctx.reply(
+    await ctx.reply(
         `Menú principal para ${label}:`,
         Markup.inlineKeyboard([
             [Markup.button.callback("📈 Ganancias", "ADD_INCOME")],
             [Markup.button.callback("📉 Gastos", "ADD_EXPENSE")],
         ])
     );
+    // Enviar resumen de ganancias del día justo debajo
+    await sendTodayIncomeSummary(ctx, s);
+}
+
+// Helper para mostrar el resumen de ganancias de hoy para el usuario activo
+async function sendTodayIncomeSummary(ctx, s) {
+    const label = getActiveUserLabel(s);
+    const today = rdTodayDateString(); // YYYY-MM-DD en zona RD
+    try {
+        const auth = await GoogleAuth.getClient();
+        const sheets = google.sheets({ version: "v4", auth });
+        const sheetName = getSheetNameForUser(s.lockedUser);
+        const range = `${sheetName}!C2:E`; // Fecha (C), Categoria (D), Cantidad (E)
+        const res = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range
+        });
+        const rows = res.data.values || [];
+        let total = 0;
+        for (const r of rows) {
+            const fecha = r[0] || "";       // C
+            const categoria = r[1] || "";   // D
+            const cantidadStr = r[2] || ""; // E
+            if (String(fecha).startsWith(today) && String(categoria).toLowerCase() === "ganancias") {
+                const num = parseFloat(String(cantidadStr).replace(/,/g, ""));
+                if (!Number.isNaN(num) && Number.isFinite(num)) total += num;
+            }
+        }
+        const totalFmt = new Intl.NumberFormat("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
+        await ctx.reply(`📊 Ganancias de hoy para ${label}: RD$ ${totalFmt}`);
+    } catch (e) {
+        console.error("sendTodayIncomeSummary error:", e);
+        await ctx.reply("⚠️ No pude obtener el resumen de hoy.");
+    }
 }
 
 function sendExpenseCategoryMenu(ctx, s) {
@@ -218,6 +253,18 @@ async function ensureFechaColumnFormat(sheetName) {
             ],
         },
     });
+}
+
+// Helper para obtener la fecha de hoy en RD en formato YYYY-MM-DD
+function rdTodayDateString() {
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Santo_Domingo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    // en-CA -> YYYY-MM-DD
+    return fmt.format(new Date());
 }
 
 async function appendEntryToSheet({
@@ -400,12 +447,12 @@ BotInstance.command("iniciar", (ctx) => {
     );
 });
 
-BotInstance.command("menu", (ctx) => {
+BotInstance.command("menu", async (ctx) => {
     const s = getSession(ctx);
     if (!s.lockedUser) {
         return ctx.reply("Primero debes elegir un usuario con /iniciar.");
     }
-    return sendMainMenu(ctx, s);
+    await sendMainMenu(ctx, s);
 });
 
 BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
@@ -416,7 +463,8 @@ BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
     if (!s.lockedUser) {
         s.lockedUser = action;
         ctx.editMessageText(`Elegiste: ${action}`);
-        return sendMainMenu(ctx, s);
+        await sendMainMenu(ctx, s);
+        return;
     }
 
     if (s.lockedUser === action) {
@@ -693,7 +741,8 @@ BotInstance.action("BACK_TO_MENU", async (ctx) => {
     s.pendingExpenseCategory = undefined;
     s.pendingExpenseOtherComment = undefined;
     s.awaitingOtherComment = false;
-    return sendMainMenu(ctx, s);
+    await sendMainMenu(ctx, s);
+    return;
 });
 
 BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx) => {
@@ -736,7 +785,7 @@ BotInstance.catch((err, ctx) => {
     }
 })();
 
-// Keep-alive ping each 5 minutes to surface auth/network issues without crashing
+// Keep-alive ping each 1 minute to surface auth/network issues without crashing
 setInterval(() => {
     BotInstance.telegram.getMe().catch((e) => {
         console.error("keepAlive getMe error:", safeErr(e));
