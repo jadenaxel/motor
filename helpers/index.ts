@@ -8,6 +8,7 @@ import ParseAmount from "./ParseAmount";
 import EnsureSheetHeader from "./EnsureSheetHeader";
 import NowAsSheetsText from "./NowAsSheetsText";
 import EnsureFechaColumnFormat from "./EnsureFechaColumnFormat";
+import AppendEntryToSheet from "./AppendEntryToSheet";
 
 export {
 	RDTodayDate,
@@ -20,4 +21,5 @@ export {
 	EnsureSheetHeader,
 	NowAsSheetsText,
 	EnsureFechaColumnFormat,
+	AppendEntryToSheet,
 };

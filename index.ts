@@ -1,19 +1,12 @@
 import { Telegraf, Markup } from "telegraf";
-import { google } from "googleapis";
 
-import GoogleAuth from "./GoogleAuth.js";
-
-import { INACTIVITY_MS, SPREADSHEET_ID } from "./Constant.js";
+import { INACTIVITY_MS } from "./Constant";
 import { SendMainMenu, SendExpenseCategoryMenu } from "./command";
-import { GetSession, SafeError, GetActiveUserLabel, GetSheetNameForUser, ParseAmount, EnsureSheetHeader, NowAsSheetsText, EnsureFechaColumnFormat } from "./helpers/";
+import { GetSession, SafeError, GetActiveUserLabel, ParseAmount, AppendEntryToSheet } from "./helpers/";
 
 import "./Process.js";
 
-// --- Patch Telegraf redactToken to avoid crash on read-only error.message (e.g., DOMException) ---
-// Some runtimes (Undici/Bun) throw errors with non-writable `message`. Telegraf tries to mutate it for token redaction.
-// We monkey-patch the internal redactToken to be safe.
 try {
-	// Dynamic import to avoid bundling issues if path changes; ignore if not found.
 	// @ts-ignore
 	import("telegraf/lib/core/network/client.js")
 		.then((mod: any) => {
@@ -50,25 +43,8 @@ const ENV_ALLOWED: number[] = (process.env.BOT_ALLOWED_USERS || "")
 const FALLBACK_ALLOWED: any[] = [].filter((n) => Number.isInteger(n));
 const ALLOWED_USERS: Set<any> = new Set(ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED);
 
-async function appendEntryToSheet({ userId, userLabel, type, amount, category, note, chatId }) {
-	const auth = await GoogleAuth.getClient();
-	const sheets = google.sheets({ version: "v4", auth });
-	const sheetName = GetSheetNameForUser(userId);
-	await EnsureSheetHeader(sheetName);
-	await EnsureFechaColumnFormat(sheetName);
-
-	const values = [[userId, userLabel || "", NowAsSheetsText(), category || "", Number(amount), note || ""]];
-	return sheets.spreadsheets.values.append({
-		spreadsheetId: SPREADSHEET_ID,
-		range: `${sheetName}!A:A`,
-		valueInputOption: "USER_ENTERED",
-		insertDataOption: "INSERT_ROWS",
-		requestBody: { values },
-	});
-}
-
-BotInstance.use(async (ctx, next) => {
-	const userId = ctx.from?.id;
+BotInstance.use(async (ctx: any, next: any) => {
+	const userId: any = ctx.from?.id;
 	if (!userId || !ALLOWED_USERS.has(userId)) {
 		if (ctx.updateType === "callback_query") {
 			await ctx
@@ -85,12 +61,12 @@ BotInstance.use(async (ctx, next) => {
 	return next();
 });
 
-function endSession(ctx) {
+function endSession(ctx: any) {
 	ctx.session = {};
-	const chatId = ctx.chat?.id;
+	const chatId: any = ctx.chat?.id;
 	if (chatId) {
 		sessions.delete(chatId);
-		const t = inactivityTimers.get(chatId);
+		const t: any = inactivityTimers.get(chatId);
 		if (t) clearTimeout(t);
 		inactivityTimers.delete(chatId);
 	}
@@ -300,7 +276,7 @@ BotInstance.on("text", async (ctx) => {
 			}
 
 			try {
-				await appendEntryToSheet({
+				await AppendEntryToSheet({
 					userId: s.lockedUser,
 					userLabel: label,
 					type: s.pendingEntryType,
