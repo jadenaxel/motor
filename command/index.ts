@@ -6,5 +6,6 @@ import Start from "./Start";
 import Menu from "./Menu";
 import Users from "./Users";
 import AddIncome from "./AddIncome";
+import AddExpense from "./AddExpense";
 
-export { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome };
+export { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome, AddExpense };

@@ -1,7 +1,7 @@
 import { Telegraf, Markup } from "telegraf";
 
 import { INACTIVITY_MS } from "./Constant";
-import { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome } from "./command";
+import { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome, AddExpense } from "./command";
 import { GetSession, SafeError, GetActiveUserLabel, ParseAmount, AppendEntryToSheet, EndSession, ResetInactivity } from "./helpers/";
 
 import "./Process.js";
@@ -272,6 +272,3 @@ process.once("SIGTERM", () => {
 	console.log("Cierre por SIGTERM");
 	BotInstance.stop("SIGTERM");
 });
-function AddExpense(ctx: any, undefined: undefined, sessions: Map<any, any>) {
-	throw new Error("Function not implemented.");
-}
