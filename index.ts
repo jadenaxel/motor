@@ -1,8 +1,8 @@
 import { Telegraf, Markup } from "telegraf";
 
 import { INACTIVITY_MS } from "./Constant";
-import { SendMainMenu, SendExpenseCategoryMenu } from "./command";
-import { GetSession, SafeError, GetActiveUserLabel, ParseAmount, AppendEntryToSheet } from "./helpers/";
+import { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome } from "./command";
+import { GetSession, SafeError, GetActiveUserLabel, ParseAmount, AppendEntryToSheet, EndSession, ResetInactivity } from "./helpers/";
 
 import "./Process.js";
 
@@ -43,168 +43,20 @@ const ENV_ALLOWED: number[] = (process.env.BOT_ALLOWED_USERS || "")
 const FALLBACK_ALLOWED: any[] = [].filter((n) => Number.isInteger(n));
 const ALLOWED_USERS: Set<any> = new Set(ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED);
 
-BotInstance.use(async (ctx: any, next: any) => {
-	const userId: any = ctx.from?.id;
-	if (!userId || !ALLOWED_USERS.has(userId)) {
-		if (ctx.updateType === "callback_query") {
-			await ctx
-				.answerCbQuery("🚫 No tienes permiso para usar este bot.", {
-					show_alert: true,
-				})
-				.catch(() => {});
-		}
-		if (ctx.updateType === "message") {
-			await ctx.reply("🚫 No tienes permiso para usar este bot.");
-		}
-		return;
-	}
+BotInstance.use(async (ctx: any, next: any) => CheckPermission(ctx, next, ALLOWED_USERS));
+BotInstance.use(async (ctx: any, next: any) => AnyMessage(ctx, next, sessions));
+
+BotInstance.use((ctx: any, next: any) => {
+	ResetInactivity(ctx, sessions, inactivityTimers, INACTIVITY_MS);
 	return next();
 });
 
-function endSession(ctx: any) {
-	ctx.session = {};
-	const chatId: any = ctx.chat?.id;
-	if (chatId) {
-		sessions.delete(chatId);
-		const t: any = inactivityTimers.get(chatId);
-		if (t) clearTimeout(t);
-		inactivityTimers.delete(chatId);
-	}
-	try {
-		if (ctx.callbackQuery?.message?.message_id) ctx.editMessageReplyMarkup();
-	} catch (e) {}
-	return ctx.telegram.sendMessage(ctx.chat.id, "🔒 Sesión expirada.");
-}
-
-function resetInactivity(ctx) {
-	const chatId = ctx.chat?.id;
-	if (!chatId) return;
-
-	const t = inactivityTimers.get(chatId);
-	if (t) clearTimeout(t);
-
-	const newTimer = setTimeout(() => {
-		endSession(ctx).catch(() => {});
-		inactivityTimers.delete(chatId);
-	}, INACTIVITY_MS);
-
-	inactivityTimers.set(chatId, newTimer);
-}
-
-BotInstance.use(async (ctx, next) => {
-	const s = GetSession(ctx, sessions);
-
-	if (ctx.updateType === "message" && typeof ctx.message?.text === "string") {
-		const txt = ctx.message.text.trim();
-		if (txt.startsWith("/")) {
-			const cmd = txt.split(" ")[0];
-
-			if (!s.lockedUser && cmd !== "/iniciar") {
-				await ctx.reply("Primero debes elegir un usuario con /iniciar.");
-				return;
-			}
-
-			if (s.lockedUser && cmd !== "/cerrar") {
-				await ctx.reply(`Ya iniciaste sesión como ${s.lockedUser}. Solo puedes usar /cerrar para salir.`);
-				return;
-			}
-		}
-	}
-
-	if (ctx.updateType === "callback_query") {
-		const data = ctx.callbackQuery?.data;
-
-		if (!s.lockedUser && data !== "KING" && data !== "ZOHAN") {
-			await ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-				show_alert: true,
-			});
-			return;
-		}
-
-		if (s.lockedUser && (data === "KING" || data === "ZOHAN") && data !== s.lockedUser) {
-			await ctx.answerCbQuery("No puedes cambiar de usuario durante la sesión. Usa /cerrar primero.", { show_alert: true });
-			return;
-		}
-	}
-
-	return next();
-});
-
-BotInstance.use((ctx, next) => {
-	resetInactivity(ctx);
-	return next();
-});
-
-BotInstance.start((ctx) => ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones."));
-
-BotInstance.command("iniciar", (ctx) => {
-	const s = GetSession(ctx, sessions);
-	if (s.lockedUser) {
-		return ctx.reply(`Ya iniciaste sesión como ${s.lockedUser}. Usa /cerrar para salir.`);
-	}
-	return ctx.reply(
-		"Quien eres?",
-		Markup.inlineKeyboard([[Markup.button.callback("Jose Manuel Polanco Nina", "KING")], [Markup.button.callback("Victor Manuel Diaz", "ZOHAN")]])
-	);
-});
-
-BotInstance.command("menu", async (ctx) => {
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.reply("Primero debes elegir un usuario con /iniciar.");
-	}
-	await SendMainMenu(ctx, s);
-});
-
-BotInstance.action(["KING", "ZOHAN"], async (ctx) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const action = ctx.callbackQuery.data;
-	const s = GetSession(ctx, sessions);
-
-	if (!s.lockedUser) {
-		s.lockedUser = action;
-		ctx.editMessageText(`Elegiste: ${action}`);
-		await SendMainMenu(ctx, s);
-		return;
-	}
-
-	if (s.lockedUser === action) {
-		return ctx.answerCbQuery("Ya estás usando este usuario.");
-	}
-
-	return ctx.answerCbQuery("No puedes cambiar de usuario durante la sesión. Usa /cerrar.", { show_alert: true });
-});
-
-BotInstance.action("ADD_INCOME", async (ctx) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-			show_alert: true,
-		});
-	}
-	const label: string | null = GetActiveUserLabel(s);
-	s.pendingEntryType = "income";
-	return ctx.reply(`📝 Registrar **Ganancia** para ${label} (ID: ${s.lockedUser}). Envía el monto o usa /cerrar para cancelar.`, {
-		parse_mode: "Markdown",
-		...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_MENU")]]),
-	});
-});
-
-BotInstance.action("ADD_EXPENSE", async (ctx) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-			show_alert: true,
-		});
-	}
-	s.pendingEntryType = "expense";
-	s.pendingExpenseCategory = undefined;
-	s.pendingExpenseOtherComment = undefined;
-	s.awaitingOtherComment = false;
-	return SendExpenseCategoryMenu(ctx, s);
-});
+BotInstance.start((ctx: any) => ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones."));
+BotInstance.command("iniciar", (ctx: any) => Start(ctx, undefined, sessions));
+BotInstance.command("menu", async (ctx: any) => Menu(ctx, undefined, sessions));
+BotInstance.action(["KING", "ZOHAN"], async (ctx: any) => Users(ctx, undefined, sessions));
+BotInstance.action("ADD_INCOME", async (ctx: any) => AddIncome(ctx, undefined, sessions));
+BotInstance.action("ADD_EXPENSE", async (ctx: any) => AddExpense(ctx, undefined, sessions));
 
 BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO", "EXP_CAT_PIEZAS", "EXP_CAT_OTROS"], async (ctx) => {
 	await ctx.answerCbQuery().catch(() => {});
@@ -242,7 +94,7 @@ BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO
 	});
 });
 
-BotInstance.command("cerrar", (ctx) => endSession(ctx));
+BotInstance.command("cerrar", (ctx: any) => EndSession(ctx, sessions, inactivityTimers));
 
 BotInstance.on("text", async (ctx) => {
 	const s = GetSession(ctx, sessions);
@@ -420,3 +272,6 @@ process.once("SIGTERM", () => {
 	console.log("Cierre por SIGTERM");
 	BotInstance.stop("SIGTERM");
 });
+function AddExpense(ctx: any, undefined: undefined, sessions: Map<any, any>) {
+	throw new Error("Function not implemented.");
+}

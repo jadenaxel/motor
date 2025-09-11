@@ -9,6 +9,8 @@ import EnsureSheetHeader from "./EnsureSheetHeader";
 import NowAsSheetsText from "./NowAsSheetsText";
 import EnsureFechaColumnFormat from "./EnsureFechaColumnFormat";
 import AppendEntryToSheet from "./AppendEntryToSheet";
+import EndSession from "./EndSession";
+import ResetInactivity from "./ResetInactivity";
 
 export {
 	RDTodayDate,
@@ -22,4 +24,6 @@ export {
 	NowAsSheetsText,
 	EnsureFechaColumnFormat,
 	AppendEntryToSheet,
+	EndSession,
+	ResetInactivity,
 };
