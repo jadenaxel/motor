@@ -2,7 +2,7 @@ import { SAFE_TOKEN_RE } from "../Constant.js";
 
 const safeErr = (e: any): any => {
 	try {
-		const msg = String(e?.message ?? e ?? "");
+		const msg: string = String(e?.message ?? e ?? "");
 		return {
 			name: e?.name || "Error",
 			message: msg.replace(SAFE_TOKEN_RE, "$1$2:[REDACTED]"),

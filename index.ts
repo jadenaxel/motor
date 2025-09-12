@@ -1,8 +1,8 @@
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf } from "telegraf";
 
 import { INACTIVITY_MS } from "./Constant";
-import { SendMainMenu, SendExpenseCategoryMenu, CheckPermission, AnyMessage, Start, Menu, Users, AddIncome, AddExpense } from "./command";
-import { GetSession, SafeError, GetActiveUserLabel, ParseAmount, AppendEntryToSheet, EndSession, ResetInactivity } from "./helpers/";
+import { CheckPermission, AnyMessage, Start, Menu, Users, AddIncome, AddExpense, ExpenseCategories, Text, BackToMenu, BackToExpenseMenu } from "./command";
+import { SafeError, EndSession, ResetInactivity } from "./helpers/";
 
 import "./Process.js";
 
@@ -36,6 +36,7 @@ const BotInstance: any = new Telegraf(process.env.BOT_API_KEY || "");
 const inactivityTimers: Map<any, any> = new Map();
 const sessions: Map<any, any> = new Map();
 
+const EXPENSE_CATEGORIES: string[] = ["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO", "EXP_CAT_PIEZAS", "EXP_CAT_OTROS"];
 const ENV_ALLOWED: number[] = (process.env.BOT_ALLOWED_USERS || "")
 	.split(",")
 	.map((s) => parseInt(s.trim(), 10))
@@ -57,169 +58,17 @@ BotInstance.command("menu", async (ctx: any) => Menu(ctx, undefined, sessions));
 BotInstance.action(["KING", "ZOHAN"], async (ctx: any) => Users(ctx, undefined, sessions));
 BotInstance.action("ADD_INCOME", async (ctx: any) => AddIncome(ctx, undefined, sessions));
 BotInstance.action("ADD_EXPENSE", async (ctx: any) => AddExpense(ctx, undefined, sessions));
-
-BotInstance.action(["EXP_CAT_GASOLINA", "EXP_CAT_ACEITE", "EXP_CAT_MANTENIMIENTO", "EXP_CAT_PIEZAS", "EXP_CAT_OTROS"], async (ctx) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-			show_alert: true,
-		});
-	}
-	if (s.pendingEntryType !== "expense") {
-		return ctx.answerCbQuery("Selecciona primero 'Gastos' en el menú.", { show_alert: true });
-	}
-	const data = ctx.callbackQuery?.data;
-	const map = {
-		EXP_CAT_GASOLINA: "Gasolina",
-		EXP_CAT_ACEITE: "Aceite",
-		EXP_CAT_MANTENIMIENTO: "Mantenimiento",
-		EXP_CAT_PIEZAS: "Piezas",
-		EXP_CAT_OTROS: "Otros",
-	};
-	s.pendingExpenseCategory = map[data] || "Otros";
-
-	if (data === "EXP_CAT_OTROS") {
-		s.awaitingOtherComment = true;
-		return ctx.reply(
-			"📝 Escribe un comentario breve de en qué se gastó el dinero (ej.: Peaje, Parqueo, Lavado).",
-			Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_EXPENSE_MENU")]])
-		);
-	}
-
-	const label: string | null = GetActiveUserLabel(s);
-	return ctx.reply(`📝 Registrar **Gasto** (${s.pendingExpenseCategory}) para ${label}. Envía el monto o usa /cerrar para cancelar.`, {
-		parse_mode: "Markdown",
-		...Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_EXPENSE_MENU")]]),
-	});
-});
-
+BotInstance.action(EXPENSE_CATEGORIES, async (ctx: any) => ExpenseCategories(ctx, sessions));
 BotInstance.command("cerrar", (ctx: any) => EndSession(ctx, sessions, inactivityTimers));
-
-BotInstance.on("text", async (ctx) => {
-	const s = GetSession(ctx, sessions);
-	const text = String(ctx.message?.text || "").trim();
-
-	if (s.lockedUser && s.pendingEntryType === "expense" && s.awaitingOtherComment) {
-		if (text.length < 2) {
-			return ctx.reply("El comentario es muy corto. Describe brevemente en qué se gastó el dinero.");
-		}
-		s.pendingExpenseOtherComment = text;
-		s.awaitingOtherComment = false;
-		const label: string | null = GetActiveUserLabel(s);
-		return ctx.reply(
-			`Comentario registrado: "${text}". Ahora envía el monto del gasto para ${label}.`,
-			Markup.inlineKeyboard([[Markup.button.callback("⬅️ Volver", "BACK_TO_EXPENSE_MENU")]])
-		);
-	}
-
-	if (s.lockedUser && (s.pendingEntryType === "income" || s.pendingEntryType === "expense")) {
-		const amount = ParseAmount(text);
-		if (!Number.isNaN(amount) && Number.isFinite(amount)) {
-			const label: string | null = GetActiveUserLabel(s);
-			const kind = s.pendingEntryType === "income" ? "Ganancia" : "Gasto";
-
-			let extra = "";
-			let savedOk = false;
-			if (s.pendingEntryType === "expense") {
-				const cat = s.pendingExpenseCategory ? ` | Categoría: ${s.pendingExpenseCategory}` : "";
-				const com = s.pendingExpenseOtherComment ? ` | Nota: ${s.pendingExpenseOtherComment}` : "";
-				extra = cat + com;
-			}
-
-			try {
-				await AppendEntryToSheet({
-					userId: s.lockedUser,
-					userLabel: label,
-					type: s.pendingEntryType,
-					amount,
-					category: s.pendingEntryType === "expense" ? s.pendingExpenseCategory || "" : "Ganancias",
-					note: s.pendingEntryType === "expense" ? s.pendingExpenseOtherComment || "" : "",
-					chatId: ctx.chat?.id,
-				});
-				savedOk = true;
-			} catch (err) {
-				console.error("Sheets append error:", err);
-			}
-
-			// reset pending states
-			s.pendingEntryType = undefined;
-			s.pendingExpenseCategory = undefined;
-			s.pendingExpenseOtherComment = undefined;
-			s.awaitingOtherComment = false;
-
-			const savedMsg = savedOk ? " 💾 Guardado en Google Sheets." : " ⚠️ No se pudo guardar en Google Sheets.";
-
-			const wasExpense = kind === "Gasto";
-			const keyboard = wasExpense
-				? Markup.inlineKeyboard([
-						[Markup.button.callback("⬅️ Volver a categorías", "BACK_TO_EXPENSE_MENU")],
-						[Markup.button.callback("🏠 Menú principal", "BACK_TO_MENU")],
-				  ])
-				: Markup.inlineKeyboard([[Markup.button.callback("🏠 Menú principal", "BACK_TO_MENU")]]);
-
-			return ctx.reply(`✅ ${kind} registrada para ${label} (ID: ${s.lockedUser}) por RD$ ${amount.toFixed(2)}.${extra}${savedMsg}`, {
-				...keyboard,
-			});
-		} else {
-			{
-				const isExpense = s.pendingEntryType === "expense";
-				const keyboard = isExpense
-					? Markup.inlineKeyboard([
-							[Markup.button.callback("⬅️ Volver a categorías", "BACK_TO_EXPENSE_MENU")],
-							[Markup.button.callback("🏠 Menú principal", "BACK_TO_MENU")],
-					  ])
-					: Markup.inlineKeyboard([[Markup.button.callback("🏠 Menú principal", "BACK_TO_MENU")]]);
-				return ctx.reply("❗Formato inválido. Envía solo la cantidad. Ejemplos válidos: 12000, 12,000, 12k, 12.5k", {
-					...keyboard,
-				});
-			}
-		}
-	}
-
-	return ctx.reply("Comando no registrado. Prueba /iniciar");
-});
-
-BotInstance.action("BACK_TO_MENU", async (ctx) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-			show_alert: true,
-		});
-	}
-	s.pendingEntryType = undefined;
-	s.pendingExpenseCategory = undefined;
-	s.pendingExpenseOtherComment = undefined;
-	s.awaitingOtherComment = false;
-	await SendMainMenu(ctx, s);
-	return;
-});
-
-BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx: any) => {
-	await ctx.answerCbQuery().catch(() => {});
-	const s = GetSession(ctx, sessions);
-	if (!s.lockedUser) {
-		return ctx.answerCbQuery("Primero elige un usuario con /iniciar.", {
-			show_alert: true,
-		});
-	}
-	s.pendingEntryType = "expense";
-	s.pendingExpenseCategory = undefined;
-	s.pendingExpenseOtherComment = undefined;
-	s.awaitingOtherComment = false;
-	return SendExpenseCategoryMenu(ctx, s);
-});
-
-BotInstance.catch((err: any, ctx: any) => {
-	console.error("Error en bot:", SafeError(err), "ctxType:", ctx?.updateType);
-	// swallow
-});
+BotInstance.on("text", async (ctx: any) => Text(ctx, sessions));
+BotInstance.action("BACK_TO_MENU", async (ctx: any) => BackToMenu(ctx, sessions));
+BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx: any) => BackToExpenseMenu(ctx, sessions));
+BotInstance.catch((err: any, ctx: any) => console.error("Error en bot:", SafeError(err), "ctxType:", ctx?.updateType));
 
 // Lanzar en modo polling asegurando que no exista webhook ni updates pendientes
 (async () => {
 	try {
-		const wh = await BotInstance.telegram.getWebhookInfo();
+		const wh: any = await BotInstance.telegram.getWebhookInfo();
 		if (wh && wh.url) {
 			console.log("Webhook detectado; eliminando antes de iniciar polling:", wh.url);
 			await BotInstance.telegram.deleteWebhook({
@@ -235,7 +84,7 @@ BotInstance.catch((err: any, ctx: any) => {
 
 // Keep-alive ping each 1 minute to surface auth/network issues without crashing
 setInterval(() => {
-	BotInstance.telegram.getMe().catch((e) => {
+	BotInstance.telegram.getMe().catch((e: any) => {
 		console.error("keepAlive getMe error:", SafeError(e));
 	});
 }, 1 * 60 * 1000);
@@ -253,9 +102,7 @@ const server = http.createServer((req, res) => {
 	res.writeHead(200, { "Content-Type": "text/plain" });
 	res.end("Motor Bot running");
 });
-server.listen(PORT, () => {
-	console.log(`HTTP health server listening on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`HTTP health server listening on port ${PORT}`));
 // --------------------------------------------------------------------
 
 process.once("SIGINT", () => {

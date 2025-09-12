@@ -2,7 +2,7 @@ import { Markup } from "telegraf";
 
 import { GetSession } from "../helpers";
 
-const Start = (ctx: any, _, sessions: any): any => {
+const Start = (ctx: any, _: any, sessions: any): any => {
 	const s: any = GetSession(ctx, sessions);
 
 	if (s.lockedUser) return ctx.reply(`Ya iniciaste sesión como ${s.lockedUser}. Usa /cerrar para salir.`);

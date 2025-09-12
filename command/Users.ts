@@ -1,7 +1,7 @@
 import { GetSession } from "../helpers";
 import SendMainMenu from "./SendMainMenu";
 
-const Users = async (ctx: any, _, sessions: any): Promise<any> => {
+const Users = async (ctx: any, _: any, sessions: any): Promise<any> => {
 	await ctx.answerCbQuery().catch(() => {});
 	const action: any = ctx.callbackQuery.data;
 	const s: any = GetSession(ctx, sessions);
