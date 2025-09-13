@@ -10,7 +10,7 @@ import AddExpense from "./AddExpense";
 import ExpenseCategories from "./ExpenseCategories";
 import Text from "./Text";
 import BackToMenu from "./BackToMenu";
-import BackToExpenseMenu from "./BacktoExpenseMenu";
+import BackToExpenseMenu from "./BackToExpenseMenu";
 
 export {
 	SendMainMenu,
