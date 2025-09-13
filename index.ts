@@ -44,26 +44,26 @@ const ENV_ALLOWED: number[] = (process.env.BOT_ALLOWED_USERS || "")
 const FALLBACK_ALLOWED: any[] = [].filter((n) => Number.isInteger(n));
 const ALLOWED_USERS: Set<any> = new Set(ENV_ALLOWED.length ? ENV_ALLOWED : FALLBACK_ALLOWED);
 
-// BotInstance.use(async (ctx: any, next: any) => CheckPermission(ctx, next, ALLOWED_USERS));
-// BotInstance.use(async (ctx: any, next: any) => AnyMessage(ctx, next, sessions));
+BotInstance.use(async (ctx: any, next: any) => CheckPermission(ctx, next, ALLOWED_USERS));
+BotInstance.use(async (ctx: any, next: any) => AnyMessage(ctx, next, sessions));
 
-// BotInstance.use((ctx: any, next: any) => {
-// 	ResetInactivity(ctx, sessions, inactivityTimers, INACTIVITY_MS);
-// 	return next();
-// });
+BotInstance.use((ctx: any, next: any) => {
+	ResetInactivity(ctx, sessions, inactivityTimers, INACTIVITY_MS);
+	return next();
+});
 
-// BotInstance.start((ctx: any) => ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones."));
-// BotInstance.command("iniciar", (ctx: any) => Start(ctx, undefined, sessions));
-// BotInstance.command("menu", async (ctx: any) => Menu(ctx, undefined, sessions));
-// BotInstance.action(["KING", "ZOHAN"], async (ctx: any) => Users(ctx, undefined, sessions));
-// BotInstance.action("ADD_INCOME", async (ctx: any) => AddIncome(ctx, undefined, sessions));
-// BotInstance.action("ADD_EXPENSE", async (ctx: any) => AddExpense(ctx, undefined, sessions));
-// BotInstance.action(EXPENSE_CATEGORIES, async (ctx: any) => ExpenseCategories(ctx, sessions));
-// BotInstance.command("cerrar", (ctx: any) => EndSession(ctx, sessions, inactivityTimers));
-// BotInstance.on("text", async (ctx: any) => Text(ctx, sessions));
-// BotInstance.action("BACK_TO_MENU", async (ctx: any) => BackToMenu(ctx, sessions));
-// BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx: any) => BackToExpenseMenu(ctx, sessions));
-// BotInstance.catch((err: any, ctx: any) => console.error("Error en bot:", SafeError(err), "ctxType:", ctx?.updateType));
+BotInstance.start((ctx: any) => ctx.reply("Bienvenido a Motor Bot! Usa /iniciar para ver opciones."));
+BotInstance.command("iniciar", (ctx: any) => Start(ctx, undefined, sessions));
+BotInstance.command("menu", async (ctx: any) => Menu(ctx, undefined, sessions));
+BotInstance.action(["KING", "ZOHAN"], async (ctx: any) => Users(ctx, undefined, sessions));
+BotInstance.action("ADD_INCOME", async (ctx: any) => AddIncome(ctx, undefined, sessions));
+BotInstance.action("ADD_EXPENSE", async (ctx: any) => AddExpense(ctx, undefined, sessions));
+BotInstance.action(EXPENSE_CATEGORIES, async (ctx: any) => ExpenseCategories(ctx, sessions));
+BotInstance.command("cerrar", (ctx: any) => EndSession(ctx, sessions, inactivityTimers));
+BotInstance.on("text", async (ctx: any) => Text(ctx, sessions));
+BotInstance.action("BACK_TO_MENU", async (ctx: any) => BackToMenu(ctx, sessions));
+BotInstance.action("BACK_TO_EXPENSE_MENU", async (ctx: any) => BackToExpenseMenu(ctx, sessions));
+BotInstance.catch((err: any, ctx: any) => console.error("Error en bot:", SafeError(err), "ctxType:", ctx?.updateType));
 
 BotInstance.command("time", (ctx: any) => {
 	const now = new Date();
